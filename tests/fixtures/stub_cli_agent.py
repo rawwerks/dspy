@@ -1,4 +1,4 @@
-"""Deterministic CLI process used by CLIAdapter tests."""
+"""Deterministic CLI process used by CLILM tests."""
 
 from __future__ import annotations
 

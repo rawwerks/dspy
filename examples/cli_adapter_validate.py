@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dspy
-from dspy.adapters.cli_adapter import CLIAdapter
+from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.clients.cli_lm import CLILM
 
 
@@ -20,7 +20,7 @@ def main() -> None:
         "exec",
         "--json",
     ]
-    adapter = CLIAdapter()
+    adapter = ChatAdapter()
     lm = CLILM(command)
 
     dspy.configure(lm=lm, adapter=adapter)
@@ -28,7 +28,7 @@ def main() -> None:
     predictor = dspy.Predict(SimpleMath)
     result = predictor(question="What is 2 + 2?")
 
-    print(f"CLIAdapter (via Codex CLI) answered: {result.answer}")
+    print(f"CLILM (via Codex CLI) answered: {result.answer}")
 
 
 if __name__ == "__main__":
