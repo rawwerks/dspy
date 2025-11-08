@@ -45,10 +45,19 @@ class CLILM(BaseLM):
         print(dspy.Predict("question -> answer")(question="What is 2 + 2?"))
         ```
 
+    To pass the prompt as an argument rather than via ``stdin``, include ``"{prompt}"`` in the CLI
+    command where the prompt text should be spliced in, for example:
+
+        ```python
+        lm = dspy.CLILM('claude -p "{prompt}" --output-format json .')
+        ```
+
     CLI stderr output is forwarded to the parent process so that CLI logs and warnings stay visible,
     and caching is forcibly disabled because CLI processes are typically stateful and should not
     reuse cached completions.
     """
+
+    PROMPT_PLACEHOLDER = "{prompt}"
 
     def __init__(
         self,
@@ -92,6 +101,7 @@ class CLILM(BaseLM):
         self.cwd = cwd
         self.timeout = timeout
         self.encoding = encoding
+        self._uses_prompt_placeholder = self.PROMPT_PLACEHOLDER in self.cli_command
 
     def _emit_cli_stderr(self, stderr: str | None) -> None:
         if not stderr:
@@ -151,17 +161,23 @@ class CLILM(BaseLM):
     # ------------------------------------------------------------------
     def _invoke_cli(self, prompt_text: str, *, generation_index: int, total: int) -> str:
         env = self._cli_env(generation_index, total)
+        command = self._prepare_cli_command(prompt_text)
+        should_pipe_prompt = not self._uses_prompt_placeholder
+        run_kwargs = dict(
+            capture_output=True,
+            text=True,
+            encoding=self.encoding,
+            cwd=self.cwd,
+            env=env,
+            timeout=self.timeout,
+            check=False,
+        )
+        if should_pipe_prompt:
+            run_kwargs["input"] = prompt_text
         try:
             completed = subprocess.run(
-                self.cli_command,
-                input=prompt_text,
-                capture_output=True,
-                text=True,
-                encoding=self.encoding,
-                cwd=self.cwd,
-                env=env,
-                timeout=self.timeout,
-                check=False,
+                command,
+                **run_kwargs,
             )
         except FileNotFoundError as exc:
             raise CLILMError(f"CLI command not found: {self._command_display()}") from exc
@@ -186,10 +202,12 @@ class CLILM(BaseLM):
 
     async def _invoke_cli_async(self, prompt_text: str, *, generation_index: int, total: int) -> str:
         env = self._cli_env(generation_index, total)
+        command = self._prepare_cli_command(prompt_text)
+        should_pipe_prompt = not self._uses_prompt_placeholder
         try:
             process = await asyncio.create_subprocess_exec(
-                *self.cli_command,
-                stdin=asyncio.subprocess.PIPE,
+                *command,
+                stdin=asyncio.subprocess.PIPE if should_pipe_prompt else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
@@ -197,9 +215,11 @@ class CLILM(BaseLM):
             )
         except FileNotFoundError as exc:
             raise CLILMError(f"CLI command not found: {self._command_display()}") from exc
-
-        input_bytes = prompt_text.encode(self.encoding)
-        communicate_coro = process.communicate(input_bytes)
+        if should_pipe_prompt:
+            input_bytes = prompt_text.encode(self.encoding)
+            communicate_coro = process.communicate(input_bytes)
+        else:
+            communicate_coro = process.communicate()
         try:
             if self.timeout is not None:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(communicate_coro, timeout=self.timeout)
@@ -241,6 +261,8 @@ class CLILM(BaseLM):
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(event, dict):
+                continue
             if event.get("type") != "item.completed":
                 continue
             item = event.get("item")
@@ -258,6 +280,13 @@ class CLILM(BaseLM):
         env["CLI_GENERATION_INDEX"] = str(generation_index)
         env["CLI_TOTAL_GENERATIONS"] = str(total)
         return env
+
+    def _prepare_cli_command(self, prompt_text: str) -> list[str]:
+        if not self._uses_prompt_placeholder:
+            return list(self.cli_command)
+        return [
+            prompt_text if token == self.PROMPT_PLACEHOLDER else token for token in self.cli_command
+        ]
 
     def _command_display(self) -> str:
         try:

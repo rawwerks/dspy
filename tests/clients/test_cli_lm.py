@@ -33,6 +33,22 @@ def test_cli_lm_handles_n_parameter():
     assert outputs == ["multi", "multi"]
 
 
+def test_cli_lm_inserts_prompt_into_cli_args():
+    command = [
+        sys.executable,
+        str(SCRIPT),
+        "--before",
+        "pre",
+        "--prompt",
+        "{prompt}",
+        "--after",
+        "post",
+    ]
+    lm = CLILM(command, env={"CLI_MODE": "argv"})
+    outputs = lm(prompt=None, messages=_messages("arg mode"))
+    assert outputs[0] == "pre:arg mode:post"
+
+
 def test_cli_lm_forwards_stderr_on_success(capsys):
     lm = _make_lm(env={"CLI_MODE": "warn"})
     outputs = lm(prompt=None, messages=_messages("need warn"))
