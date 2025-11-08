@@ -55,14 +55,6 @@ CLI_EXAMPLES = [
         extra_args=(),
         question="List the project files",
     ),
-    CLIExample(
-        name="codex_json_stream",
-        base_command="codex exec",
-        extra_args=(
-            "--json",
-        ),
-        question="Summarize CONTRIBUTING guidelines",
-    ),
 ]
 
 
