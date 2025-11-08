@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Get the remote name being pushed to
+remote="$1"
+url="$2"
+
+# Files that should never go to upstream
+FORK_ONLY_FILES=(
+    ".beads/"
+    "AGENTS.md"
+    ".gitattributes"
+)
+
+# Check if pushing to upstream
+if [[ "$remote" == "upstream" ]] || [[ "$url" == *"stanfordnlp/dspy"* ]]; then
+    echo "Checking for fork-only files before pushing to upstream..."
+    
+    # Read stdin which contains: <local ref> <local sha> <remote ref> <remote sha>
+    while read local_ref local_sha remote_ref remote_sha; do
+        # Get list of files in commits being pushed
+        if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+            # New branch, check all commits
+            range="$local_sha"
+        else
+            # Existing branch, check new commits
+            range="$remote_sha..$local_sha"
+        fi
+        
+        # Check each fork-only file
+        for file in "${FORK_ONLY_FILES[@]}"; do
+            if git diff --name-only "$range" | grep -q "^${file}"; then
+                echo "ERROR: Attempting to push fork-only file '$file' to upstream!"
+                echo "Please remove this file from your commits before pushing to upstream."
+                exit 1
+            fi
+        done
+    done
+fi
+
+exit 0

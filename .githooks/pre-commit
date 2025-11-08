@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Files that are fork-only
+FORK_ONLY_FILES=(
+    ".beads/"
+    "AGENTS.md"
+    ".gitattributes"
+)
+
+# Get list of files being committed
+files=$(git diff --cached --name-only)
+
+for file in "${FORK_ONLY_FILES[@]}"; do
+    if echo "$files" | grep -q "^${file}"; then
+        echo "⚠️  WARNING: Committing fork-only file: $file"
+        echo "   This file should not be pushed to upstream!"
+        echo "   Only push to origin (your fork)"
+    fi
+done
+
+exit 0

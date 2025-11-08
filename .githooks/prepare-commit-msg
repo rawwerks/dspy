@@ -1,0 +1,39 @@
+#!/bin/bash
+
+COMMIT_MSG_FILE=$1
+COMMIT_SOURCE=$2
+
+# Files that are fork-only
+FORK_ONLY_FILES=(
+    ".beads/"
+    "AGENTS.md"
+    ".gitattributes"
+)
+
+# Skip if this is an amended commit or merge
+if [ "$COMMIT_SOURCE" = "merge" ] || [ "$COMMIT_SOURCE" = "squash" ]; then
+    exit 0
+fi
+
+# Get list of files being committed
+files=$(git diff --cached --name-only)
+
+has_fork_only=false
+for file in "${FORK_ONLY_FILES[@]}"; do
+    if echo "$files" | grep -q "^${file}"; then
+        has_fork_only=true
+        break
+    fi
+done
+
+# Add tag to commit message if fork-only files are present
+if [ "$has_fork_only" = true ]; then
+    # Check if tag already exists
+    if ! grep -q "\[FORK-ONLY\]" "$COMMIT_MSG_FILE"; then
+        # Prepend tag to first line
+        sed -i.bak '1s/^/[FORK-ONLY] /' "$COMMIT_MSG_FILE"
+        rm "${COMMIT_MSG_FILE}.bak" 2>/dev/null
+    fi
+fi
+
+exit 0
