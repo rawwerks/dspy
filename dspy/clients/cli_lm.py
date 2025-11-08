@@ -9,7 +9,7 @@ import shlex
 import subprocess
 import time
 import uuid
-from typing import Any, Sequence
+from typing import Sequence
 
 from litellm.utils import Choices, Message, ModelResponse
 
@@ -31,11 +31,27 @@ class CLILMError(RuntimeError):
 
 
 class CLILM(BaseLM):
-    """BaseLM implementation that communicates with CLI programs via stdin/stdout."""
+    """BaseLM implementation that communicates with CLI programs via stdin/stdout.
+
+    Example:
+
+        ```python
+        import dspy
+
+        lm = dspy.CLILM("python my_cli_model.py")
+        dspy.configure(lm=lm)
+        print(dspy.Predict("question -> answer")(question="What is 2 + 2?"))
+        ```
+    """
 
     def __init__(
         self,
         cli_command: Sequence[str] | str,
+        model: str = "cli",
+        model_type: str = "chat",
+        temperature: float = 0.0,
+        max_tokens: int = 1000,
+        cache: bool = False,
         *,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
@@ -43,7 +59,14 @@ class CLILM(BaseLM):
         encoding: str = "utf-8",
         **kwargs,
     ) -> None:
-        super().__init__(model="cli", model_type="chat", cache=False, **kwargs)
+        super().__init__(
+            model=model,
+            model_type=model_type,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            cache=cache,
+            **kwargs,
+        )
 
         if isinstance(cli_command, str):
             cli_command = shlex.split(cli_command)
@@ -215,3 +238,20 @@ class CLILM(BaseLM):
             return shlex.join(self.cli_command)
         except AttributeError:  # pragma: no cover - safety
             return " ".join(self.cli_command)
+
+    def dump_state(self) -> dict[str, object]:
+        state_keys = [
+            "model",
+            "model_type",
+            "cache",
+            "cli_command",
+            "env",
+            "cwd",
+            "timeout",
+            "encoding",
+        ]
+        state = {key: getattr(self, key) for key in state_keys}
+        state["cli_command"] = list(self.cli_command)
+        state["env"] = dict(self.env)
+        filtered_kwargs = {k: v for k, v in self.kwargs.items() if k != "api_key"}
+        return state | filtered_kwargs

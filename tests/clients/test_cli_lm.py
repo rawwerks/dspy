@@ -56,3 +56,25 @@ def test_cli_lm_exposes_raw_stdout_if_not_json():
     lm = _make_lm(env={"CLI_MODE": "invalid"})
     outputs = lm(prompt=None, messages=_messages("fallback"))
     assert outputs[0] == "{not json"
+
+
+def test_cli_lm_dump_state_exposes_serializable_configuration():
+    lm = _make_lm(env={"CLI_MODE": "plain"})
+    state = lm.dump_state()
+
+    assert state["model"] == "cli"
+    assert state["cli_command"][0] == sys.executable
+    assert state["env"]["CLI_MODE"] == "plain"
+
+
+def test_cli_lm_dump_state_filters_api_keys():
+    lm = CLILM([sys.executable, str(SCRIPT)], api_key="secret-key")
+    state = lm.dump_state()
+
+    assert "api_key" not in state
+
+
+def test_cli_lm_raises_on_missing_binary():
+    lm = CLILM(["__dspy_missing_command__"])
+    with pytest.raises(CLILMError, match="CLI command not found"):
+        lm("hello")
