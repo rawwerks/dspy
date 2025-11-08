@@ -130,7 +130,7 @@ class CLILM(BaseLM):
     def _invoke_cli(self, prompt_text: str, *, generation_index: int, total: int) -> str:
         env = self._cli_env(generation_index, total)
         try:
-            completed = subprocess.run(  # noqa: S603
+            completed = subprocess.run(
                 self.cli_command,
                 input=prompt_text,
                 capture_output=True,
@@ -162,7 +162,7 @@ class CLILM(BaseLM):
     async def _invoke_cli_async(self, prompt_text: str, *, generation_index: int, total: int) -> str:
         env = self._cli_env(generation_index, total)
         try:
-            process = await asyncio.create_subprocess_exec(  # noqa: S603
+            process = await asyncio.create_subprocess_exec(
                 *self.cli_command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
