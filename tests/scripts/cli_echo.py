@@ -28,6 +28,11 @@ def main():
         sys.stdout.write("{not json")
         return 0
 
+    if MODE == "warn":
+        print("cli warning: proceed with caution", file=sys.stderr)
+        sys.stdout.write(content)
+        return 0
+
     if MODE == "json":
         events = [
             {"type": "item.completed", "item": {"type": "agent_message", "text": content}},

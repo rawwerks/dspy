@@ -7,8 +7,10 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import time
 import uuid
+import warnings
 from typing import Sequence
 
 from litellm.utils import Choices, Message, ModelResponse
@@ -42,6 +44,10 @@ class CLILM(BaseLM):
         dspy.configure(lm=lm)
         print(dspy.Predict("question -> answer")(question="What is 2 + 2?"))
         ```
+
+    CLI stderr output is forwarded to the parent process so that CLI logs and warnings stay visible,
+    and caching is forcibly disabled because CLI processes are typically stateful and should not
+    reuse cached completions.
     """
 
     def __init__(
@@ -51,7 +57,7 @@ class CLILM(BaseLM):
         model_type: str = "chat",
         temperature: float = 0.0,
         max_tokens: int = 1000,
-        cache: bool = False,
+        cache: bool | None = None,
         *,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
@@ -59,6 +65,14 @@ class CLILM(BaseLM):
         encoding: str = "utf-8",
         **kwargs,
     ) -> None:
+        cache_enabled = cache if cache is not None else False
+        if cache_enabled:
+            warnings.warn(
+                "CLILM does not support caching; ignoring cache=True.",
+                stacklevel=2,
+            )
+        cache = False
+
         super().__init__(
             model=model,
             model_type=model_type,
@@ -78,6 +92,14 @@ class CLILM(BaseLM):
         self.cwd = cwd
         self.timeout = timeout
         self.encoding = encoding
+
+    def _emit_cli_stderr(self, stderr: str | None) -> None:
+        if not stderr:
+            return
+        sys.stderr.write(stderr)
+        if not stderr.endswith("\n"):
+            sys.stderr.write("\n")
+        sys.stderr.flush()
 
     def forward(self, prompt=None, messages=None, **kwargs):
         prompt_text = self._messages_to_prompt(messages, prompt)
@@ -150,14 +172,17 @@ class CLILM(BaseLM):
                 stderr=exc.stderr,
             ) from exc
 
+        stdout = completed.stdout
+        stderr = completed.stderr
         if completed.returncode != 0:
             raise CLILMError(
                 f"CLI command '{self._command_display()}' exited with status {completed.returncode}",
-                stdout=completed.stdout,
-                stderr=completed.stderr,
+                stdout=stdout,
+                stderr=stderr,
             )
 
-        return self._normalize_output(completed.stdout)
+        self._emit_cli_stderr(stderr)
+        return self._normalize_output(stdout)
 
     async def _invoke_cli_async(self, prompt_text: str, *, generation_index: int, total: int) -> str:
         env = self._cli_env(generation_index, total)
@@ -195,6 +220,7 @@ class CLILM(BaseLM):
                 stdout=stdout,
                 stderr=stderr,
             )
+        self._emit_cli_stderr(stderr)
         return self._normalize_output(stdout)
 
     def _normalize_output(self, raw_stdout: str) -> str:

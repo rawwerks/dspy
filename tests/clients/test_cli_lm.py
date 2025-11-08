@@ -33,6 +33,14 @@ def test_cli_lm_handles_n_parameter():
     assert outputs == ["multi", "multi"]
 
 
+def test_cli_lm_forwards_stderr_on_success(capsys):
+    lm = _make_lm(env={"CLI_MODE": "warn"})
+    outputs = lm(prompt=None, messages=_messages("need warn"))
+    assert outputs[0] == "need warn"
+    captured = capsys.readouterr()
+    assert "cli warning: proceed with caution" in captured.err
+
+
 @pytest.mark.asyncio
 async def test_cli_lm_async_round_trip():
     lm = _make_lm()
@@ -78,3 +86,9 @@ def test_cli_lm_raises_on_missing_binary():
     lm = CLILM(["__dspy_missing_command__"])
     with pytest.raises(CLILMError, match="CLI command not found"):
         lm("hello")
+
+
+def test_cli_lm_cache_disabled_even_if_requested():
+    with pytest.warns(UserWarning, match="does not support caching"):
+        lm = CLILM([sys.executable, str(SCRIPT)], cache=True)
+    assert lm.cache is False
