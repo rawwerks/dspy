@@ -5,6 +5,7 @@ from pathlib import Path
 import litellm
 
 from dspy.clients.base_lm import BaseLM, inspect_history
+from dspy.clients.cli_lm import CLILM
 from dspy.clients.cache import Cache
 from dspy.clients.embedding import Embedder
 from dspy.clients.lm import LM
@@ -106,6 +107,7 @@ disable_litellm_logging()
 __all__ = [
     "BaseLM",
     "LM",
+    "CLILM",
     "Provider",
     "TrainingJob",
     "inspect_history",

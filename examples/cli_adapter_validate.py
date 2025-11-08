@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import dspy
 from dspy.adapters.cli_adapter import CLIAdapter
-from dspy.utils.dummies import DummyLM
+from dspy.clients.cli_lm import CLILM
 
 
 class SimpleMath(dspy.Signature):
@@ -14,20 +11,24 @@ class SimpleMath(dspy.Signature):
 
 
 def main() -> None:
-    agent_path = Path(__file__).resolve().parents[1] / "agent.py"
-    adapter = CLIAdapter([sys.executable, str(agent_path)])
+    command = [
+        "codex",
+        "--ask-for-approval",
+        "never",
+        "--sandbox",
+        "workspace-write",
+        "exec",
+        "--json",
+    ]
+    adapter = CLIAdapter()
+    lm = CLILM(command)
 
-    dummy_lm = DummyLM([{"answer": ""}])
-    dspy.configure(lm=dummy_lm, adapter=adapter)
+    dspy.configure(lm=lm, adapter=adapter)
 
     predictor = dspy.Predict(SimpleMath)
     result = predictor(question="What is 2 + 2?")
 
-    expected = "Echo 1: What is 2 + 2?"
-    if result.answer != expected:
-        raise SystemExit(f"Unexpected adapter output: {result.answer}")
-
-    print(f"CLIAdapter produced: {result.answer}")
+    print(f"CLIAdapter (via Codex CLI) answered: {result.answer}")
 
 
 if __name__ == "__main__":
