@@ -1495,7 +1495,6 @@ class TestBudgetTracking:
 
     def test_budget_reflects_llm_calls(self):
         """Test that budget() shows correct remaining LLM calls after usage."""
-        rlm = RLM("query -> answer", max_iterations=5, max_llm_calls=10)
         execution_state = {"start_time": __import__("time").monotonic(), "iteration": 0}
 
         from unittest.mock import MagicMock
@@ -1546,7 +1545,6 @@ class TestBudgetTracking:
 
     def test_max_time_triggers_extract_fallback(self):
         """Test that exceeding max_time triggers extract fallback (not exception)."""
-        import time
 
         mock = MockInterpreter(responses=[
             "exploring...",
