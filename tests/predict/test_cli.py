@@ -945,3 +945,179 @@ class TestCLIEdgeCases:
         assert "line3" in result.answer
 
 
+# ============================================================================
+# Sandbox Tests
+# ============================================================================
+
+
+class TestCLISandbox:
+    """Tests for CLISandbox protocol and built-in implementations."""
+
+    def test_sandbox_protocol_compliance(self):
+        """Custom sandbox implementing wrap_command works."""
+        from dspy.primitives.cli_types import CLISandbox
+
+        class MockSandbox:
+            def wrap_command(self, command, *, cwd=None, env=None):
+                return ["sandbox-wrapper", "--"] + list(command)
+
+        sandbox = MockSandbox()
+        assert isinstance(sandbox, CLISandbox)
+
+    def test_sandbox_wraps_command(self):
+        """CLI applies sandbox.wrap_command before execution."""
+        class PrefixSandbox:
+            def wrap_command(self, command, *, cwd=None, env=None):
+                return ["prefix"] + list(command)
+
+        cli = CLI(
+            "question -> answer",
+            command=[sys.executable, str(SCRIPT)],
+            sandbox=PrefixSandbox(),
+        )
+        # The prepared command should have the prefix
+        cmd = cli._prepare_cli_command("test prompt")
+        assert cmd[0] == "prefix"
+        assert cmd[1] == sys.executable
+
+    def test_sandbox_receives_cwd_and_env(self):
+        """Sandbox wrap_command receives cwd and env."""
+        received = {}
+
+        class SpySandbox:
+            def wrap_command(self, command, *, cwd=None, env=None):
+                received["cwd"] = cwd
+                received["env"] = env
+                return list(command)  # pass through
+
+        cli = CLI(
+            "question -> answer",
+            command=[sys.executable, str(SCRIPT)],
+            cwd="/tmp/test",
+            env={"MY_VAR": "val"},
+            sandbox=SpySandbox(),
+        )
+        cli._prepare_cli_command("test")
+        assert received["cwd"] == "/tmp/test"
+        assert received["env"]["MY_VAR"] == "val"
+
+    def test_no_sandbox_by_default(self):
+        """CLI runs unsandboxed by default."""
+        cli = _make_cli()
+        assert cli.sandbox is None
+
+    def test_sandbox_with_real_subprocess(self):
+        """Sandbox that passes through still works end-to-end."""
+        class PassthroughSandbox:
+            def wrap_command(self, command, *, cwd=None, env=None):
+                return list(command)
+
+        cli = CLI(
+            "question -> answer",
+            command=[sys.executable, str(SCRIPT)],
+            sandbox=PassthroughSandbox(),
+        )
+        cli.prepare_prompt = make_mock_predictor([{"cli_prompt": "sandboxed hello"}])
+        result = cli(question="test")
+        assert result.answer == "sandboxed hello"
+
+    def test_bubble_sandbox_builds_bwrap_command(self):
+        """BubbleSandbox produces correct bwrap command."""
+        from dspy.primitives.cli_types import BubbleSandbox
+
+        sandbox = BubbleSandbox(allow_network=False)
+        cmd = sandbox.wrap_command(["my-cli", "--flag"], cwd="/tmp/work")
+        assert cmd[0] == "bwrap"
+        assert "--unshare-net" in cmd
+        assert "--unshare-pid" in cmd
+        assert "--bind" in cmd  # cwd is bind-mounted
+        assert "/tmp/work" in cmd
+        # Original command comes after --
+        sep_idx = cmd.index("--")
+        assert cmd[sep_idx + 1:] == ["my-cli", "--flag"]
+
+    def test_bubble_sandbox_allows_network(self):
+        """BubbleSandbox with allow_network=True omits --unshare-net."""
+        from dspy.primitives.cli_types import BubbleSandbox
+
+        sandbox = BubbleSandbox(allow_network=True)
+        cmd = sandbox.wrap_command(["echo", "hi"])
+        assert "--unshare-net" not in cmd
+
+    def test_docker_sandbox_builds_docker_command(self):
+        """DockerSandbox produces correct docker run command."""
+        from dspy.primitives.cli_types import DockerSandbox
+
+        sandbox = DockerSandbox(image="ubuntu:22.04", allow_network=False)
+        cmd = sandbox.wrap_command(
+            ["my-cli", "arg"],
+            cwd="/project",
+            env={"API_KEY": "secret"},
+        )
+        assert cmd[:3] == ["docker", "run", "--rm"]
+        assert "--network" in cmd
+        assert "none" in cmd
+        assert "-v" in cmd
+        assert "/project:/project" in cmd
+        assert "ubuntu:22.04" in cmd
+        # Original command at the end
+        assert cmd[-2:] == ["my-cli", "arg"]
+
+    def test_docker_sandbox_allows_network(self):
+        """DockerSandbox with allow_network=True omits --network none."""
+        from dspy.primitives.cli_types import DockerSandbox
+
+        sandbox = DockerSandbox(allow_network=True)
+        cmd = sandbox.wrap_command(["echo", "hi"])
+        assert "--network" not in cmd
+
+    def test_docker_sandbox_passes_env(self):
+        """DockerSandbox passes env vars with -e flags."""
+        from dspy.primitives.cli_types import DockerSandbox
+
+        sandbox = DockerSandbox()
+        cmd = sandbox.wrap_command(["cmd"], env={"KEY": "val", "FOO": "bar"})
+        assert "-e" in cmd
+        assert "KEY=val" in cmd
+        assert "FOO=bar" in cmd
+
+
+# ============================================================================
+# Serialization Round-Trip Tests
+# ============================================================================
+
+
+class TestSerialization:
+    """Tests for dump_state / load_state round-trip."""
+
+    def test_dump_load_round_trip(self):
+        """dump_state → load_state preserves module configuration."""
+        cli = _make_cli(timeout=30, max_retries=2, env={"SAFE_VAR": "visible"})
+        state = cli.dump_state()
+
+        cli2 = _make_cli()
+        cli2.load_state(state)
+
+        assert cli2.timeout == 30
+        assert cli2.max_retries == 2
+        assert cli2.env.get("SAFE_VAR") == "visible"
+
+    def test_dump_state_filters_secrets(self):
+        """dump_state excludes env vars with 'key' or 'secret' in name."""
+        cli = _make_cli(env={"API_KEY": "secret123", "SAFE_VAR": "visible"})
+        state = cli.dump_state()
+        assert "API_KEY" not in state["env"]
+        assert state["env"]["SAFE_VAR"] == "visible"
+
+    def test_load_state_updates_placeholder_flag(self):
+        """load_state recalculates _uses_placeholder from new command."""
+        cli = _make_cli()  # stdin mode, no placeholder
+        assert cli._uses_placeholder is False
+
+        state = cli.dump_state()
+        state["command"] = ["echo", "{PROMPT}"]
+        cli.load_state(state)
+
+        assert cli._uses_placeholder is True
+
+

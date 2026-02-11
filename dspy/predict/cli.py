@@ -11,8 +11,9 @@ as named predictors that optimizers (MIPRO, GEPA, BootstrapTrace) can tune.
 
 Reference: https://github.com/stanfordnlp/dspy/issues/9034
 
-TODO: Add sandboxing support similar to dspy.RLM's CodeInterpreter
-(Deno/Pyodide/WASM). CLI subprocesses currently run unsandboxed on the host.
+Sandboxing follows the same protocol pattern as RLM's CodeInterpreter:
+provide a CLISandbox implementation to wrap_command() before execution.
+Built-in: BubbleSandbox (bwrap), DockerSandbox. Default: unsandboxed.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import time
 from typing import TYPE_CHECKING, Any, Sequence
 
 import dspy
-from dspy.primitives.cli_types import CLITrajectory, parse_jsonl_events
+from dspy.primitives.cli_types import CLISandbox, CLITrajectory, parse_jsonl_events
 from dspy.primitives.module import Module
 from dspy.primitives.prediction import Prediction
 from dspy.signatures.signature import ensure_signature
@@ -123,6 +124,8 @@ class CLI(Module):
         # Output parsing
         parse_jsonl: bool = True,
         max_output_chars: int = 100_000,
+        # Sandboxing
+        sandbox: CLISandbox | None = None,
         # Execution
         verbose: bool = False,
     ):
@@ -140,6 +143,9 @@ class CLI(Module):
             max_retries: Number of retries on non-zero exit code.
             parse_jsonl: Whether to attempt JSONL event parsing on stdout.
             max_output_chars: Maximum chars to include in trajectory for Predict inputs.
+            sandbox: Optional CLISandbox implementation to run the CLI in a
+                    restricted environment. See BubbleSandbox, DockerSandbox,
+                    or implement the CLISandbox protocol.
             verbose: Whether to log detailed execution info.
         """
         super().__init__()
@@ -165,6 +171,10 @@ class CLI(Module):
         # Output parsing
         self.parse_jsonl = parse_jsonl
         self.max_output_chars = max_output_chars
+
+        # Sandboxing
+        self.sandbox = sandbox
+
         self.verbose = verbose
 
         # Build optimizable Predict nodes
@@ -244,10 +254,16 @@ class CLI(Module):
     # =========================================================================
 
     def _prepare_cli_command(self, prompt_text: str) -> list[str]:
-        """Build the actual command list, splicing in prompt if placeholder is used."""
+        """Build the actual command list, splicing in prompt and applying sandbox."""
         if not self._uses_placeholder:
-            return list(self.command)
-        return [token.format(PROMPT=prompt_text) for token in self.command]
+            cmd = list(self.command)
+        else:
+            cmd = [token.format(PROMPT=prompt_text) for token in self.command]
+
+        if self.sandbox is not None:
+            cmd = self.sandbox.wrap_command(cmd, cwd=self.cwd, env=self.env)
+
+        return cmd
 
     def _cli_env(self, generation_index: int = 0, total: int = 1) -> dict[str, str]:
         """Build environment for the subprocess."""
