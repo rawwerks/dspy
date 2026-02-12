@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dspy.predict.cli import CLI, CLIError
+from dspy.predict.cli import CLI, CLIError, AGENT_PRESETS, _build_agent_command
 from dspy.primitives.cli_types import CLIEvent, CLITrajectory, parse_jsonl_events
 from dspy.primitives.prediction import Prediction
 
@@ -1080,6 +1080,104 @@ class TestCLISandbox:
         assert "-e" in cmd
         assert "KEY=val" in cmd
         assert "FOO=bar" in cmd
+
+
+# ============================================================================
+# Shell Injection Validation Tests
+# ============================================================================
+
+
+class TestShellValidation:
+    """Tests for unsafe shell wrapper detection."""
+
+    @pytest.mark.parametrize("shell", ["bash", "sh", "zsh", "dash", "fish", "ksh"])
+    def test_shell_c_with_placeholder_raises(self, shell):
+        """bash -c '... {PROMPT} ...' is rejected."""
+        with pytest.raises(ValueError, match="shell injection"):
+            CLI("q -> a", command=[shell, "-c", "echo {PROMPT}"])
+
+    def test_shell_without_placeholder_allowed(self):
+        """bash -c without {PROMPT} is fine (prompt goes via stdin)."""
+        cli = CLI("q -> a", command=["bash", "-c", "cat"])
+        assert cli._uses_placeholder is False
+
+    def test_shell_without_c_flag_allowed(self):
+        """bash {PROMPT} without -c is allowed (prompt is a filename arg)."""
+        cli = CLI("q -> a", command=["bash", "{PROMPT}"])
+        assert cli._uses_placeholder is True
+
+    def test_direct_command_with_placeholder_allowed(self):
+        """Non-shell commands with {PROMPT} are fine."""
+        cli = CLI("q -> a", command=["my-cli", "--input", "{PROMPT}"])
+        assert cli._uses_placeholder is True
+
+    def test_full_path_shell_detected(self):
+        """/bin/bash -c is also caught."""
+        with pytest.raises(ValueError, match="shell injection"):
+            CLI("q -> a", command=["/bin/bash", "-c", "echo {PROMPT}"])
+
+
+# ============================================================================
+# Agent Preset Tests
+# ============================================================================
+
+
+class TestAgentPresets:
+    """Tests for agent presets and from_agent()."""
+
+    def test_all_presets_have_required_keys(self):
+        required_keys = {"command", "parse_jsonl", "model_flag"}
+        for name, preset in AGENT_PRESETS.items():
+            missing = required_keys - set(preset.keys())
+            assert not missing, f"Preset {name!r} missing keys: {missing}"
+
+    def test_unknown_agent_raises(self):
+        with pytest.raises(ValueError, match="Unknown agent"):
+            _build_agent_command("nonexistent")
+
+    def test_claude_preset(self):
+        cmd, parse_jsonl = _build_agent_command("claude")
+        assert cmd[0] == "claude"
+        assert "-p" in cmd
+        assert parse_jsonl is False
+
+    def test_codex_preset(self):
+        cmd, _ = _build_agent_command("codex")
+        assert cmd[:2] == ["codex", "exec"]
+
+    def test_model_appended(self):
+        cmd, _ = _build_agent_command("claude", model="sonnet")
+        assert "--model" in cmd
+        assert "sonnet" in cmd
+
+    def test_no_model_when_none(self):
+        cmd, _ = _build_agent_command("pi")
+        assert "--model" not in cmd
+
+    def test_from_agent_creates_cli(self):
+        cli = CLI.from_agent("pi", "question -> answer")
+        assert isinstance(cli, CLI)
+        assert cli.command[0] == "pi"
+
+    def test_from_agent_passes_kwargs(self):
+        cli = CLI.from_agent("codex", "task -> result", timeout=120)
+        assert cli.timeout == 120
+
+    def test_from_agent_json_sets_parse_jsonl(self):
+        cli = CLI.from_agent("codex-json", "task -> result")
+        assert cli.parse_jsonl is True
+
+    def test_from_agent_emits_warning(self, capsys):
+        """from_agent logs a warning about permissive flags."""
+        CLI.from_agent("claude", "q -> a")
+        captured = capsys.readouterr()
+        assert "permissive" in captured.err.lower() or "production" in captured.err.lower()
+
+    def test_from_agent_has_named_predictors(self):
+        cli = CLI.from_agent("pi", "question -> answer")
+        names = [n for n, _ in cli.named_predictors()]
+        assert "prepare_prompt" in names
+        assert "extract" in names
 
 
 # ============================================================================

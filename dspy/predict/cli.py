@@ -83,6 +83,83 @@ If the output doesn't contain enough information, do your best to extract what's
 PROMPT_PLACEHOLDER = "{PROMPT}"
 
 
+# =============================================================================
+# Agent Presets
+# =============================================================================
+
+# Default commands for common coding agent CLIs. These use permissive flags
+# (auto-approve, skip permissions) for ease of development. For production,
+# restrict permissions using --allowed-tools, --sandbox, or similar flags.
+
+AGENT_PRESETS: dict[str, dict[str, Any]] = {
+    "claude": {
+        "command": ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "text",
+                     "--no-session-persistence"],
+        "parse_jsonl": False,
+        "model_flag": "--model",
+    },
+    "claude-json": {
+        "command": ["claude", "-p", "--verbose", "--dangerously-skip-permissions",
+                     "--output-format", "stream-json", "--no-session-persistence"],
+        "parse_jsonl": True,
+        "model_flag": "--model",
+    },
+    "codex": {
+        "command": ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"],
+        "parse_jsonl": False,
+        "model_flag": "--model",
+    },
+    "codex-json": {
+        "command": ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--json"],
+        "parse_jsonl": True,
+        "model_flag": "--model",
+    },
+    "gemini": {
+        "command": ["gemini", "--yolo", "-o", "text"],
+        "parse_jsonl": False,
+        "model_flag": "--model",
+    },
+    "gemini-json": {
+        "command": ["gemini", "--yolo", "-o", "json"],
+        "parse_jsonl": True,
+        "model_flag": "--model",
+    },
+    "pi": {
+        "command": ["pi", "-p", "--no-session"],
+        "parse_jsonl": False,
+        "model_flag": "--model",
+    },
+    "pi-json": {
+        "command": ["pi", "-p", "--mode", "json", "--no-session"],
+        "parse_jsonl": True,
+        "model_flag": "--model",
+    },
+}
+
+
+def _build_agent_command(agent: str, *, model: str | None = None) -> tuple[list[str], bool]:
+    """Build a CLI command from an agent preset.
+
+    Args:
+        agent: Agent name (e.g., "claude", "codex-json", "pi").
+        model: Model to use (e.g., "sonnet", "o3"). None = agent default.
+
+    Returns:
+        Tuple of (command_list, parse_jsonl).
+    """
+    if agent not in AGENT_PRESETS:
+        available = ", ".join(sorted(AGENT_PRESETS.keys()))
+        raise ValueError(f"Unknown agent {agent!r}. Available: {available}")
+
+    preset = AGENT_PRESETS[agent]
+    cmd = list(preset["command"])
+
+    if model is not None:
+        cmd.extend([preset["model_flag"], model])
+
+    return cmd, preset["parse_jsonl"]
+
+
 @experimental
 class CLI(Module):
     """CLI module — wraps any stdin/stdout CLI as an optimizable DSPy module.
@@ -103,11 +180,11 @@ class CLI(Module):
         result = cli(question="What is the capital of France?")
         print(result.answer)
         ```
-
-    Note:
-        If your command uses ``bash -c`` or similar shell wrappers, ensure
-        prompt content is safe for shell evaluation.
     """
+
+    # Shell wrappers that are unsafe with {PROMPT} placeholder because
+    # user-controlled prompt text would be evaluated by the shell.
+    _UNSAFE_SHELL_WRAPPERS = frozenset({"bash", "sh", "zsh", "fish", "csh", "tcsh", "dash", "ksh"})
 
     def __init__(
         self,
@@ -158,6 +235,7 @@ class CLI(Module):
             raise ValueError("command cannot be empty")
         self.command = list(command)
         self._uses_placeholder = any(PROMPT_PLACEHOLDER in token for token in self.command)
+        self._validate_command()
 
         # Subprocess config
         self.env = dict(env or {})
@@ -181,6 +259,51 @@ class CLI(Module):
         prepare_sig, extract_sig = self._build_signatures()
         self.prepare_prompt = dspy.Predict(prepare_sig)
         self.extract = dspy.Predict(extract_sig)
+
+    @classmethod
+    def from_agent(
+        cls,
+        agent: str,
+        signature: type[Signature] | str,
+        *,
+        model: str | None = None,
+        **kwargs,
+    ) -> CLI:
+        """Create a CLI module from a named agent preset.
+
+        Available agents: claude, claude-json, codex, codex-json, gemini,
+        gemini-json, pi, pi-json.
+
+        .. warning::
+            Default presets use permissive flags (auto-approve, skip permissions)
+            for ease of development. For production, pass ``command=`` directly
+            with restricted permissions (e.g., ``--allowed-tools``, ``--sandbox``).
+
+        Args:
+            agent: Agent name. Append "-json" for JSONL structured output.
+            signature: DSPy signature (e.g., "question -> answer").
+            model: Model override (e.g., "sonnet", "o3"). None = agent default.
+            **kwargs: Passed to CLI.__init__ (e.g., timeout, max_retries, sandbox).
+
+        Example:
+            ```python
+            cli = dspy.CLI.from_agent("claude", "task -> result", model="sonnet")
+            cli = dspy.CLI.from_agent("codex-json", "task -> result", model="o3")
+            cli = dspy.CLI.from_agent("pi", "question -> answer", timeout=60)
+            ```
+        """
+        command, preset_parse_jsonl = _build_agent_command(agent, model=model)
+
+        if "parse_jsonl" not in kwargs:
+            kwargs["parse_jsonl"] = preset_parse_jsonl
+
+        logger.warning(
+            f"CLI.from_agent({agent!r}) uses permissive default flags (auto-approve, "
+            f"skip permissions). For production, use CLI(command=...) with restricted "
+            f"permissions (e.g., --allowed-tools, --sandbox)."
+        )
+
+        return cls(signature=signature, command=command, **kwargs)
 
     # =========================================================================
     # Signature Construction
@@ -586,6 +709,27 @@ class CLI(Module):
         missing = set(self.signature.input_fields.keys()) - set(input_args.keys())
         if missing:
             raise ValueError(f"Missing required inputs: {sorted(missing)}")
+
+    def _validate_command(self) -> None:
+        """Raise ValueError if command uses unsafe shell wrappers with {PROMPT}.
+
+        Commands like ``bash -c "... {PROMPT} ..."`` are unsafe because
+        user-controlled prompt text is evaluated by the shell, enabling
+        injection attacks. Use direct command lists instead.
+        """
+        if not self._uses_placeholder:
+            return
+
+        import os
+        base_cmd = os.path.basename(self.command[0])
+        if base_cmd in self._UNSAFE_SHELL_WRAPPERS:
+            has_c_flag = any(token in ("-c", "--command") for token in self.command)
+            if has_c_flag:
+                raise ValueError(
+                    f"Unsafe command: '{base_cmd} -c' with {{PROMPT}} placeholder allows shell injection. "
+                    f"Use a direct command list instead, e.g.: ['my-cli', '{{PROMPT}}'] "
+                    f"or pipe via stdin (omit {{PROMPT}} from command)."
+                )
 
     # =========================================================================
     # Serialization
