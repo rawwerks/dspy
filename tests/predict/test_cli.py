@@ -1021,6 +1021,111 @@ class TestCLISandbox:
         result = cli(question="test")
         assert result.answer == "sandboxed hello"
 
+    def test_deno_sandbox_builds_deno_command(self):
+        """DenoSandbox produces correct deno run command with permissions."""
+        from dspy.primitives.cli_types import DenoSandbox
+
+        sandbox = DenoSandbox(
+            enable_read_paths=["/data"],
+            enable_write_paths=["/output"],
+            enable_env_vars=["API_KEY"],
+            enable_network_access=["api.openai.com"],
+        )
+        cmd = sandbox.wrap_command(["my-cli", "--flag"], cwd="/project")
+        assert cmd[0] == "deno"
+        assert cmd[1] == "run"
+        # Permissions
+        assert any("--allow-run=" in c and "my-cli" in c for c in cmd)
+        assert any("--allow-read=" in c and "/data" in c for c in cmd)
+        assert any("--allow-read=" in c and "/project" in c for c in cmd)  # cwd auto-added
+        assert any("--allow-write=" in c and "/output" in c for c in cmd)
+        assert any("--allow-env=" in c and "API_KEY" in c for c in cmd)
+        assert any("--allow-net=" in c and "api.openai.com" in c for c in cmd)
+        # Runner script as last arg
+        assert cmd[-1].endswith(".ts")
+
+    def test_deno_sandbox_auto_adds_cli_binary(self):
+        """DenoSandbox automatically allows the CLI binary to run."""
+        from dspy.primitives.cli_types import DenoSandbox
+
+        sandbox = DenoSandbox()
+        cmd = sandbox.wrap_command(["claude", "-p"])
+        run_flag = [c for c in cmd if c.startswith("--allow-run=")]
+        assert len(run_flag) == 1
+        assert "claude" in run_flag[0]
+
+    def test_deno_sandbox_auto_adds_cwd_to_read_write(self):
+        """DenoSandbox adds cwd to read and write paths."""
+        from dspy.primitives.cli_types import DenoSandbox
+
+        sandbox = DenoSandbox()
+        cmd = sandbox.wrap_command(["my-cli"], cwd="/workspace")
+        read_flag = [c for c in cmd if c.startswith("--allow-read=")]
+        write_flag = [c for c in cmd if c.startswith("--allow-write=")]
+        assert any("/workspace" in c for c in read_flag)
+        assert any("/workspace" in c for c in write_flag)
+
+    def test_deno_sandbox_passes_env_vars(self):
+        """DenoSandbox auto-allows env vars passed to wrap_command."""
+        from dspy.primitives.cli_types import DenoSandbox
+
+        sandbox = DenoSandbox()
+        cmd = sandbox.wrap_command(["cli"], env={"SECRET": "val", "TOKEN": "abc"})
+        env_flag = [c for c in cmd if c.startswith("--allow-env=")]
+        assert len(env_flag) == 1
+        assert "SECRET" in env_flag[0]
+        assert "TOKEN" in env_flag[0]
+
+    def test_deno_sandbox_no_network_by_default(self):
+        """DenoSandbox blocks network by default (no --allow-net)."""
+        from dspy.primitives.cli_types import DenoSandbox
+
+        sandbox = DenoSandbox()
+        cmd = sandbox.wrap_command(["my-cli"])
+        assert not any("--allow-net" in c for c in cmd)
+
+    def test_deno_sandbox_matches_python_interpreter_api(self):
+        """DenoSandbox param names match PythonInterpreter's."""
+        from dspy.primitives.cli_types import DenoSandbox
+        import inspect
+        params = inspect.signature(DenoSandbox.__init__).parameters
+        # Same names as PythonInterpreter (minus 'self')
+        assert "enable_read_paths" in params
+        assert "enable_write_paths" in params
+        assert "enable_env_vars" in params
+        assert "enable_network_access" in params
+
+    def test_deno_sandbox_real_execution(self):
+        """DenoSandbox actually runs a command in Deno sandbox."""
+        from dspy.primitives.cli_types import DenoSandbox
+        import shutil
+        if not shutil.which("deno"):
+            pytest.skip("deno not installed")
+
+        sandbox = DenoSandbox(enable_run=["echo"])
+        cmd = sandbox.wrap_command(["echo", "hello from deno"])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0
+        assert "hello from deno" in result.stdout
+
+    def test_deno_sandbox_blocks_unauthorized_run(self):
+        """DenoSandbox blocks programs not in enable_run."""
+        from dspy.primitives.cli_types import DenoSandbox
+        import shutil
+        if not shutil.which("deno"):
+            pytest.skip("deno not installed")
+
+        # Only echo is allowed — trying to run ls should fail
+        sandbox = DenoSandbox(enable_run=["echo"])
+        # Manually build a command that tries to run "ls" but only echo is allowed
+        cmd = sandbox.wrap_command(["ls", "/tmp"])
+        # Override the allow-run to NOT include ls (wrap_command auto-adds it)
+        cmd = [c for c in cmd if not c.startswith("--allow-run=")]
+        cmd.insert(2, "--allow-run=echo")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        assert result.returncode != 0
+        assert "NotCapable" in result.stderr or "allow-run" in result.stderr
+
     def test_bubble_sandbox_builds_bwrap_command(self):
         """BubbleSandbox produces correct bwrap command."""
         from dspy.primitives.cli_types import BubbleSandbox

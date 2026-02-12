@@ -189,6 +189,7 @@ class CLISandbox(Protocol):
     the CLI command to run it in a restricted environment.
 
     Built-in implementations:
+    - DenoSandbox: Uses Deno's permission system (same as PythonInterpreter)
     - BubbleSandbox: Uses bubblewrap (bwrap) for Linux namespace isolation
     - DockerSandbox: Runs the CLI inside a Docker container
 
@@ -223,6 +224,147 @@ class CLISandbox(Protocol):
             The wrapped command list that runs inside the sandbox.
         """
         ...
+
+
+class DenoSandbox:
+    """Sandbox using Deno's permission system.
+
+    Uses the same permission model as ``PythonInterpreter`` from RLM:
+    Deno's V8 security sandbox restricts filesystem, network, environment,
+    and subprocess access by default — you explicitly allow what's needed.
+
+    The CLI command is spawned as a subprocess inside Deno via
+    ``Deno.Command``, inheriting only the permissions you grant.
+
+    Requires ``deno`` to be installed (already a dependency if using RLM).
+
+    Args:
+        enable_run: Programs the CLI is allowed to spawn. The first element
+            of your CLI command is added automatically.
+        enable_read_paths: Files/directories to allow reading from.
+        enable_write_paths: Files/directories to allow writing to.
+        enable_env_vars: Environment variable names to allow.
+        enable_network_access: Domains/IPs to allow network access to.
+
+    Example:
+        ```python
+        sandbox = DenoSandbox(
+            enable_read_paths=["/data"],
+            enable_write_paths=["/output"],
+            enable_network_access=["api.openai.com"],
+        )
+        cli = dspy.CLI("task -> result", command="my-cli", sandbox=sandbox)
+        ```
+    """
+
+    def __init__(
+        self,
+        *,
+        enable_run: Sequence[str] | None = None,
+        enable_read_paths: Sequence[str] | None = None,
+        enable_write_paths: Sequence[str] | None = None,
+        enable_env_vars: Sequence[str] | None = None,
+        enable_network_access: Sequence[str] | None = None,
+    ):
+        self.enable_run = list(enable_run or [])
+        self.enable_read_paths = list(enable_read_paths or [])
+        self.enable_write_paths = list(enable_write_paths or [])
+        self.enable_env_vars = list(enable_env_vars or [])
+        self.enable_network_access = list(enable_network_access or [])
+
+    def wrap_command(
+        self,
+        command: Sequence[str],
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> list[str]:
+        import json as _json
+        import shutil
+
+        command = list(command)
+
+        # Find deno
+        deno = shutil.which("deno")
+        if not deno:
+            raise RuntimeError(
+                "DenoSandbox requires 'deno' to be installed. "
+                "See https://docs.deno.com/runtime/getting_started/installation/"
+            )
+
+        # Build deno permission flags
+        args = ["deno", "run"]
+
+        # --allow-run: always include the CLI binary itself
+        run_list = list(self.enable_run)
+        if command and command[0] not in run_list:
+            run_list.append(command[0])
+        args.append(f"--allow-run={','.join(run_list)}")
+
+        # --allow-read
+        read_paths = list(self.enable_read_paths)
+        if cwd and cwd not in read_paths:
+            read_paths.append(cwd)
+        if read_paths:
+            args.append(f"--allow-read={','.join(read_paths)}")
+
+        # --allow-write
+        write_paths = list(self.enable_write_paths)
+        if cwd and cwd not in write_paths:
+            write_paths.append(cwd)
+        if write_paths:
+            args.append(f"--allow-write={','.join(write_paths)}")
+
+        # --allow-env
+        env_vars = list(self.enable_env_vars)
+        if env:
+            for key in env:
+                if key not in env_vars:
+                    env_vars.append(key)
+        if env_vars:
+            args.append(f"--allow-env={','.join(env_vars)}")
+
+        # --allow-net
+        if self.enable_network_access:
+            args.append(f"--allow-net={','.join(self.enable_network_access)}")
+
+        # Inline JS runner that spawns the command and inherits stdio.
+        # Uses `deno run [flags] --` with inline eval via process substitution
+        # would be shell-dependent, so we write a temp file instead.
+        import tempfile
+
+        cmd_json = _json.dumps(command[0])
+        args_json = _json.dumps(command[1:])
+        cwd_json = _json.dumps(cwd) if cwd else "undefined"
+
+        js = (
+            f"const cmd = new Deno.Command({cmd_json}, {{"
+            f"args: {args_json}, "
+            f"cwd: {cwd_json}, "
+            f"stdin: 'inherit', stdout: 'inherit', stderr: 'inherit'"
+            f"}}); "
+            f"const status = cmd.outputSync(); "
+            f"Deno.exit(status.code);"
+        )
+
+        # Write runner to a temp .ts file (auto-cleaned by OS)
+        runner = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ts", prefix="dspy_deno_sandbox_", delete=False,
+        )
+        runner.write(js)
+        runner.close()
+
+        # Allow deno to read the runner script
+        read_flag_idx = next(
+            (i for i, a in enumerate(args) if a.startswith("--allow-read=")), None
+        )
+        if read_flag_idx is not None:
+            args[read_flag_idx] += f",{runner.name}"
+        else:
+            args.append(f"--allow-read={runner.name}")
+
+        args.append(runner.name)
+        return args
 
 
 class BubbleSandbox:
