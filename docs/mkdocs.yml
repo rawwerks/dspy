@@ -122,6 +122,7 @@ nav:
         - Models:
             - api/models/index.md
             - BaseLM: api/models/BaseLM.md
+            - CLI: api/models/CLI.md
             - Embedder: api/models/Embedder.md
             - LM: api/models/LM.md
         - Modules:
