@@ -6,6 +6,7 @@ from typing import Any
 from dspy.clients._litellm import get_litellm
 from dspy.clients.base_lm import BaseLM, inspect_history
 from dspy.clients.cache import Cache
+from dspy.clients.cli_command import CLICommand, resolve_agent_cli
 from dspy.clients.embedding import Embedder
 from dspy.clients.lm import LM
 from dspy.clients.provider import Provider, TrainingJob
@@ -112,6 +113,7 @@ def disable_litellm_logging():
 
 __all__ = [
     "BaseLM",
+    "CLICommand",
     "LM",
     "Provider",
     "TrainingJob",
@@ -120,4 +122,5 @@ __all__ = [
     "enable_litellm_logging",
     "disable_litellm_logging",
     "configure_cache",
+    "resolve_agent_cli",
 ]

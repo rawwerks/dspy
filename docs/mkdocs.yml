@@ -128,6 +128,7 @@ nav:
             - api/modules/index.md
             - BestOfN: api/modules/BestOfN.md
             - ChainOfThought: api/modules/ChainOfThought.md
+            - CLI: api/modules/CLI.md
             - CodeAct: api/modules/CodeAct.md
             - Flex: api/modules/Flex.md
             - Module: api/modules/Module.md
