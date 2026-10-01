@@ -76,6 +76,12 @@ These were run end to end on Linux on 2026-10-01:
 Other agents have not been tried. One that takes its task as an argument can be
 wrapped in a shell, which is still an argv: `["sh", "-c", 'exec my-agent "$(cat)"']`.
 
+A command that prints its result instead of running `submit` can be piped into it,
+because `submit` reads the object from standard input when given no argument:
+`["sh", "-c", "my-tool --json | submit"]`. The output is validated like any other
+submission. Such a command still receives the task on standard input, as text written
+for an agent.
+
 ## With the rest of DSPy
 
 `CLI` is found by `named_predictors()`, records its calls in the trace, and renders its
