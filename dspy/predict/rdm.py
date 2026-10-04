@@ -45,6 +45,7 @@ from dspy.adapters.types.decision import Choice, Noul, Score
 from dspy.adapters.types.tool import Tool
 from dspy.dsp.utils.settings import settings
 from dspy.predict.predict import Predict, serialize_object
+from dspy.predict.rdm_fit import Fit
 from dspy.predict.rdm_shared import ACTIVE as _ACTIVE
 from dspy.predict.rdm_shared import ALWAYS as _ALWAYS
 from dspy.predict.rdm_shared import POINTS as _POINTS
@@ -165,7 +166,8 @@ class RDM(Module):
             ``finish`` does: a tool that writes, say.
         fit: Called with each request before it is asked, as ``fit(signature, inputs, call)``, and
             returns the signature and inputs to ask in their place. It can make sub-calls through
-            ``call.rdm``, as a tool can. None asks every request as it is.
+            ``call.rdm``, as a tool can. ``dspy.experimental.RDM.Fit()`` cuts down what one request cannot hold.
+            None asks every request as it is.
             Several, given as a list, are applied in order.
         finish: Whether an output typed ``dspy.Tool`` is offered ``finish`` beside the tools. Without
             it a loop ends at a limit, at a repeat, or at a tool named ``finish`` if there is one:
@@ -214,6 +216,7 @@ class RDM(Module):
     """
 
     Call = Call
+    Fit = Fit
 
     def __init__(
         self,
