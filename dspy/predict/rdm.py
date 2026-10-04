@@ -45,6 +45,7 @@ from dspy.adapters.types.decision import Choice, Noul, Score
 from dspy.adapters.types.tool import Tool
 from dspy.dsp.utils.settings import settings
 from dspy.predict.predict import Predict, serialize_object
+from dspy.predict.rdm_filter import Filter
 from dspy.predict.rdm_fit import Fit
 from dspy.predict.rdm_shared import ACTIVE as _ACTIVE
 from dspy.predict.rdm_shared import ALWAYS as _ALWAYS
@@ -217,6 +218,7 @@ class RDM(Module):
 
     Call = Call
     Fit = Fit
+    Filter = Filter
 
     def __init__(
         self,
