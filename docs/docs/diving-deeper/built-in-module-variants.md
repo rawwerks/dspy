@@ -106,5 +106,6 @@ Wraps `ParallelExecutor` and submits each `(module, example)` pair to a thread p
 - [Tools and MCP](tools.md) — `CodeAct`, `RLM`, and ReAct use the same tool-wrapping machinery.
 - [ReAct and ReActV2](react.md) — the dedicated agent-loop comparison and migration plan.
 - [RLM: exploring large contexts with code](rlm.md) — the deep dive on the experimental REPL-driven module summarized above.
+- [RDM: recursive decisions over a large state](rdm.md) — RLM's idea for models that return decisions instead of code.
 - [Flex: Optimizable module code](flex.md) — the deep dive on the code-optimizable Flex module summarized above.
 - [Settings and `context()`](settings-and-context.md) — how `Parallel` and `Module.batch` snapshot the active overrides into each worker.

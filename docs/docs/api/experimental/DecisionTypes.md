@@ -271,7 +271,8 @@ of existing rich values remain supported as inputs without this warning.
 annotations contain Noul, Choice, or Score, including decision-annotated native
 types. `SUBMIT` does not apply shared evidence decoding and can return values
 inconsistent with their probabilities. Forced extraction uses a different path.
-Use `Predict` for decision outputs. The warning
+Use `Predict` for decision outputs, or [`dspy.experimental.RDM`](RDM.md) when the state is too
+large for one request: it follows RLM's idea with decisions in place of code. The warning
 does not prevent execution; ordinary native RLM outputs are unaffected.
 
 Unsupported output annotations (such as `str`, `int`, bare `float`, lists,

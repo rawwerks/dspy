@@ -6,5 +6,6 @@ API reference for DSPy experimental. Select a page below.
 - [Citations](Citations.md)
 - [Decision types and System One models](DecisionTypes.md)
 - [Document](Document.md)
+- [RDM](RDM.md)
 - [ReAnchor](ReAnchor.md)
 <!-- END_API_INDEX -->

@@ -29,6 +29,7 @@ nav:
         - "Modules: composing your own": diving-deeper/modules.md
         - Built-in module variants: diving-deeper/built-in-module-variants.md
         - "RLM: exploring large contexts with code": diving-deeper/rlm.md
+        - "RDM: recursive decisions": diving-deeper/rdm.md
         - "Flex: optimizable module code": diving-deeper/flex.md
         - Tools and MCP: diving-deeper/tools.md
         - ReAct and ReActV2: diving-deeper/react.md
@@ -114,6 +115,7 @@ nav:
             - Citations: api/experimental/Citations.md
             - Decision types and System One models: api/experimental/DecisionTypes.md
             - Document: api/experimental/Document.md
+            - RDM: api/experimental/RDM.md
             - ReAnchor: api/experimental/ReAnchor.md
         - Models:
             - api/models/index.md
