@@ -600,7 +600,8 @@ class RLM(Module):
     # CodeInterpreter Lifecycle
     # =========================================================================
 
-    def _make_interpreter_tool(self, tool: Tool) -> Callable:
+    @staticmethod
+    def _make_interpreter_tool(tool: Tool) -> Callable:
         """Preserve function metadata while routing execution through Tool."""
         if inspect.iscoroutinefunction(tool.func) or inspect.iscoroutinefunction(getattr(tool.func, "__call__", None)):
             async def invoke(**kwargs):

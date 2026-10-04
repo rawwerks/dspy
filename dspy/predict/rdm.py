@@ -47,6 +47,7 @@ from dspy.dsp.utils.settings import settings
 from dspy.predict.predict import Predict, serialize_object
 from dspy.predict.rdm_filter import Filter
 from dspy.predict.rdm_fit import Fit
+from dspy.predict.rdm_repl import Repl
 from dspy.predict.rdm_shared import ACTIVE as _ACTIVE
 from dspy.predict.rdm_shared import ALWAYS as _ALWAYS
 from dspy.predict.rdm_shared import POINTS as _POINTS
@@ -219,6 +220,7 @@ class RDM(Module):
     Call = Call
     Fit = Fit
     Filter = Filter
+    Repl = Repl
 
     def __init__(
         self,
